@@ -105,6 +105,9 @@ class RecorderWindow(QMainWindow):
         self.scan_button = QPushButton("カメラを再検出")
         self.scan_button.clicked.connect(self._scan_cameras)
         side.addWidget(self.scan_button)
+        self.auto_settings_check = QCheckBox("カメラ確定時に設定を開く")
+        self.auto_settings_check.setChecked(True)
+        side.addWidget(self.auto_settings_check)
         side.addSpacing(12)
         side.addWidget(self._section_label("画質"))
         self.resolution_box = QComboBox()
@@ -193,8 +196,17 @@ class RecorderWindow(QMainWindow):
         self._stop_workers()
         width, height = (int(part.strip()) for part in self.resolution_box.currentText().split("x"))
         fps = float(self.fps_box.currentText())
+        show_settings = self.auto_settings_check.isChecked()
         for index in selected:
-            worker = CameraWorker(CameraSettings(index=index, width=width, height=height, fps=fps))
+            worker = CameraWorker(
+                CameraSettings(
+                    index=index,
+                    width=width,
+                    height=height,
+                    fps=fps,
+                    show_settings=show_settings,
+                )
+            )
             self.workers[index] = worker
             worker.start()
         self._build_preview_grid(selected)
@@ -216,13 +228,28 @@ class RecorderWindow(QMainWindow):
             preview.setMinimumSize(240, 135)
             preview.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
             layout.addWidget(preview, stretch=1)
+
+            footer = QHBoxLayout()
+            footer.setContentsMargins(8, 6, 8, 6)
             name = QLabel(f"カメラ {index}")
-            name.setContentsMargins(8, 6, 8, 6)
-            layout.addWidget(name)
+            footer.addWidget(name)
+            footer.addStretch()
+            settings_button = QPushButton("⚙ 設定")
+            settings_button.setFixedHeight(24)
+            settings_button.setStyleSheet("padding: 2px 8px; font-size: 11px;")
+            settings_button.clicked.connect(lambda _, idx=index: self._open_camera_settings(idx))
+            footer.addWidget(settings_button)
+            layout.addLayout(footer)
+
             self.preview_grid.addWidget(card, position // columns, position % columns)
             self.preview_labels[index] = preview
         for column in range(columns):
             self.preview_grid.setColumnStretch(column, 1)
+
+    def _open_camera_settings(self, index: int) -> None:
+        worker = self.workers.get(index)
+        if worker is not None:
+            worker.open_settings()
 
     def _refresh_previews(self) -> None:
         connected_count = 0

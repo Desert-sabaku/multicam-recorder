@@ -16,6 +16,7 @@ class CameraSettings:
     width: int = 1280
     height: int = 720
     fps: float = 30.0
+    show_settings: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +123,12 @@ class CameraWorker:
                 error=self._error,
             )
 
+    def open_settings(self) -> None:
+        """Open DirectShow camera properties dialog if supported and active."""
+        with self._lock:
+            if self._capture is not None and self._capture.isOpened():
+                self._capture.set(cv2.CAP_PROP_SETTINGS, 1)
+
     def close(self, timeout: float = 3.0) -> None:
         self._stop_event.set()
         self.request_stop_recording()
@@ -137,6 +144,8 @@ class CameraWorker:
         capture.set(cv2.CAP_PROP_FPS, self.settings.fps)
         capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        if self.settings.show_settings and platform.system() == "Windows":
+            capture.set(cv2.CAP_PROP_SETTINGS, 1)
         return capture
 
     def _run(self) -> None:
