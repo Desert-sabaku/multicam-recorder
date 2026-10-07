@@ -132,10 +132,10 @@ class CameraWorker:
         capture = cv2.VideoCapture(self.settings.index, capture_backend())
         if not capture.isOpened():
             raise RuntimeError("カメラを開けませんでした")
-        capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         capture.set(cv2.CAP_PROP_FRAME_WIDTH, self.settings.width)
         capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self.settings.height)
         capture.set(cv2.CAP_PROP_FPS, self.settings.fps)
+        capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
         capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         return capture
 
