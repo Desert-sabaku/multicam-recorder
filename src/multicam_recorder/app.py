@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QSizePolicy, QVBoxLayout, QWidget,
 )
 
-from .camera import CameraSettings, CameraWorker, discover_camera_indices
+from .camera import CameraSettings, CameraWorker, ROTATION_OPTIONS, discover_camera_indices
 from .session import CameraResult, make_session_directory, write_metadata
 
 
@@ -51,6 +51,8 @@ class RecorderWindow(QMainWindow):
         self.camera_checks: dict[int, QCheckBox] = {}
         self.workers: dict[int, CameraWorker] = {}
         self.preview_labels: dict[int, QLabel] = {}
+        self.camera_rotations: dict[int, str] = {}
+        self.camera_rotation_boxes: dict[int, QComboBox] = {}
         self.record_state = "idle"
         self.record_start_event: threading.Event | None = None
         self.armed_events: list[threading.Event] = []
@@ -120,6 +122,13 @@ class RecorderWindow(QMainWindow):
         self.fps_box.setCurrentText("30")
         side.addWidget(self.fps_box)
         side.addSpacing(12)
+        side.addWidget(self._section_label("回転"))
+        self.rotation_box = QComboBox()
+        self.rotation_box.addItems(list(ROTATION_OPTIONS))
+        self.rotation_box.setCurrentText("0°")
+        self.rotation_box.currentTextChanged.connect(self._on_global_rotation_changed)
+        side.addWidget(self.rotation_box)
+        side.addSpacing(12)
         side.addWidget(self._section_label("保存先"))
         self.output_edit = QLineEdit(str(Path.cwd() / "recordings"))
         side.addWidget(self.output_edit)
@@ -149,6 +158,22 @@ class RecorderWindow(QMainWindow):
         label = QLabel(text)
         label.setStyleSheet("font-size: 14px; font-weight: 600; margin-top: 4px;")
         return label
+
+    def _on_global_rotation_changed(self, text: str) -> None:
+        for index in list(self.camera_checks.keys()):
+            self.camera_rotations[index] = text
+        for box in self.camera_rotation_boxes.values():
+            box.blockSignals(True)
+            box.setCurrentText(text)
+            box.blockSignals(False)
+        for worker in self.workers.values():
+            worker.set_rotation(text)
+
+    def _on_camera_rotation_changed(self, index: int, text: str) -> None:
+        self.camera_rotations[index] = text
+        worker = self.workers.get(index)
+        if worker is not None:
+            worker.set_rotation(text)
 
     def _scan_cameras(self) -> None:
         if self.workers:
@@ -198,6 +223,8 @@ class RecorderWindow(QMainWindow):
         fps = float(self.fps_box.currentText())
         show_settings = self.auto_settings_check.isChecked()
         for index in selected:
+            rot = self.camera_rotations.get(index, self.rotation_box.currentText())
+            self.camera_rotations[index] = rot
             worker = CameraWorker(
                 CameraSettings(
                     index=index,
@@ -205,6 +232,7 @@ class RecorderWindow(QMainWindow):
                     height=height,
                     fps=fps,
                     show_settings=show_settings,
+                    rotation=rot,
                 )
             )
             self.workers[index] = worker
@@ -217,6 +245,7 @@ class RecorderWindow(QMainWindow):
     def _build_preview_grid(self, indices: list[int]) -> None:
         self._clear_layout(self.preview_grid)
         self.preview_labels.clear()
+        self.camera_rotation_boxes.clear()
         columns = max(1, math.ceil(math.sqrt(len(indices))))
         for position, index in enumerate(indices):
             card = QFrame(objectName="previewCard")
@@ -231,9 +260,21 @@ class RecorderWindow(QMainWindow):
 
             footer = QHBoxLayout()
             footer.setContentsMargins(8, 6, 8, 6)
+            footer.setSpacing(6)
             name = QLabel(f"カメラ {index}")
             footer.addWidget(name)
             footer.addStretch()
+
+            rotation_box = QComboBox()
+            rotation_box.addItems(list(ROTATION_OPTIONS))
+            current_rot = self.camera_rotations.get(index, self.rotation_box.currentText())
+            rotation_box.setCurrentText(current_rot)
+            rotation_box.setFixedHeight(24)
+            rotation_box.setStyleSheet("padding: 2px 4px; font-size: 11px;")
+            rotation_box.currentTextChanged.connect(lambda text, idx=index: self._on_camera_rotation_changed(idx, text))
+            footer.addWidget(rotation_box)
+            self.camera_rotation_boxes[index] = rotation_box
+
             settings_button = QPushButton("⚙ 設定")
             settings_button.setFixedHeight(24)
             settings_button.setStyleSheet("padding: 2px 8px; font-size: 11px;")
@@ -307,6 +348,9 @@ class RecorderWindow(QMainWindow):
         self.record_button.setEnabled(False)
         self.preview_button.setEnabled(False)
         self.scan_button.setEnabled(False)
+        self.rotation_box.setEnabled(False)
+        for box in self.camera_rotation_boxes.values():
+            box.setEnabled(False)
         self.status_label.setText("録画ファイルを準備しています…")
         self.arm_deadline = time.monotonic() + 5.0
         QTimer.singleShot(20, self._check_armed)
@@ -336,6 +380,9 @@ class RecorderWindow(QMainWindow):
         self.record_button.setEnabled(True)
         self.preview_button.setEnabled(True)
         self.scan_button.setEnabled(True)
+        self.rotation_box.setEnabled(True)
+        for box in self.camera_rotation_boxes.values():
+            box.setEnabled(True)
         QMessageBox.critical(self, "録画エラー", reason)
 
     def _stop_recording(self) -> None:
@@ -357,7 +404,7 @@ class RecorderWindow(QMainWindow):
         results = []
         for index, worker in self.workers.items():
             snap = worker.snapshot()
-            results.append(CameraResult(index, f"camera_{index:02d}.mp4", snap.width, snap.height, snap.fps, snap.frames_written, snap.error))
+            results.append(CameraResult(index, f"camera_{index:02d}.mp4", snap.width, snap.height, snap.fps, snap.frames_written, snap.error, snap.rotation))
         if self.session_directory and self.started_at and self.ended_at:
             write_metadata(self.session_directory, self.started_at, self.ended_at, results)
         saved_to = self.session_directory
@@ -368,6 +415,9 @@ class RecorderWindow(QMainWindow):
         self.record_button.setEnabled(True)
         self.preview_button.setEnabled(True)
         self.scan_button.setEnabled(True)
+        self.rotation_box.setEnabled(True)
+        for box in self.camera_rotation_boxes.values():
+            box.setEnabled(True)
         self.status_label.setText(f"録画を保存しました: {saved_to}")
         if self.closing_requested:
             self.allow_close = True
@@ -382,6 +432,7 @@ class RecorderWindow(QMainWindow):
         for worker in self.workers.values():
             worker.close()
         self.workers.clear()
+        self.camera_rotation_boxes.clear()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         if self.allow_close or self.record_state == "idle":

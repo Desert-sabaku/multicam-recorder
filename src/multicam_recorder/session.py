@@ -15,6 +15,7 @@ class CameraResult:
     fps: float
     frames_written: int
     error: str | None
+    rotation: str = "0°"
 
 
 def make_session_directory(root: Path, now: datetime | None = None) -> Path:

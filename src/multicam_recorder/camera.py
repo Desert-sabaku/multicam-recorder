@@ -10,6 +10,24 @@ import cv2
 import numpy as np
 
 
+ROTATION_OPTIONS: tuple[str, ...] = ("0°", "90°", "180°", "270°", "左右反転", "上下反転")
+
+
+def apply_rotation(frame: np.ndarray, rotation: str) -> np.ndarray:
+    """Apply 90/180/270 degree rotation or horizontal/vertical flip to frame."""
+    if rotation == "90°":
+        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    if rotation == "180°":
+        return cv2.rotate(frame, cv2.ROTATE_180)
+    if rotation == "270°":
+        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    if rotation == "左右反転":
+        return cv2.flip(frame, 1)
+    if rotation == "上下反転":
+        return cv2.flip(frame, 0)
+    return frame
+
+
 @dataclass(frozen=True, slots=True)
 class CameraSettings:
     index: int
@@ -17,6 +35,7 @@ class CameraSettings:
     height: int = 720
     fps: float = 30.0
     show_settings: bool = False
+    rotation: str = "0°"
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +48,7 @@ class CameraSnapshot:
     recording: bool
     frames_written: int
     error: str | None
+    rotation: str = "0°"
 
 
 @dataclass(slots=True)
@@ -66,6 +86,7 @@ class CameraWorker:
 
     def __init__(self, settings: CameraSettings) -> None:
         self.settings = settings
+        self._rotation = settings.rotation
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
@@ -80,6 +101,17 @@ class CameraWorker:
         self._stop_recording = False
         self._recording = False
         self._frames_written = 0
+
+    def set_rotation(self, rotation: str) -> None:
+        with self._lock:
+            if self._request is not None or self._recording:
+                return
+            self._rotation = rotation
+
+    @property
+    def rotation(self) -> str:
+        with self._lock:
+            return self._rotation
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -121,6 +153,7 @@ class CameraWorker:
                 recording=self._recording,
                 frames_written=self._frames_written,
                 error=self._error,
+                rotation=self._rotation,
             )
 
     def open_settings(self) -> None:
@@ -176,6 +209,13 @@ class CameraWorker:
                     continue
 
                 height, width = frame.shape[:2]
+                with self._lock:
+                    current_rotation = self._rotation
+
+                if current_rotation != "0°":
+                    frame = apply_rotation(frame, current_rotation)
+                    height, width = frame.shape[:2]
+
                 with self._lock:
                     self._frame = frame
                     self._actual_width = width
